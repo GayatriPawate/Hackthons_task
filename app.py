@@ -6,6 +6,7 @@ Official-facing intelligence layer for Municipal Commissioner and Zonal Officers
 from __future__ import annotations
 
 from html import escape
+from hashlib import md5
 
 import streamlit as st
 import plotly.express as px
@@ -359,6 +360,7 @@ from lib.labels import (
     CATEGORY_LABELS,
     CATEGORY_COLORS,
     STATUS_LABELS,
+    STATUS_COLORS,
     STATUSES,
     CATEGORIES,
     LANGUAGE_LABELS,
@@ -555,6 +557,319 @@ def _render_hotspot_map(df, height: int = 520) -> None:
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
             legend_title_text="Category",
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+
+def _render_complaint_dot_map(complaints: list[dict], hotspots_df=None, height: int = 520) -> None:
+    """Render one dot per complaint, jittered slightly so overlapping complaints remain visible."""
+    import pandas as _pd
+
+    complaint_df = complaints_to_df(complaints)
+    if complaint_df.empty:
+        st.info("No complaint coordinates available for the selected filters.")
+        return
+
+    complaint_df = complaint_df.dropna(subset=["latitude", "longitude"]).copy()
+    if complaint_df.empty:
+        st.info("No complaint coordinates available for the selected filters.")
+        return
+
+    complaint_df["category_label"] = complaint_df["category"].map(lambda k: CATEGORY_LABELS.get(k, k))
+    complaint_df["status_label"] = complaint_df["status"].map(lambda k: STATUS_LABELS.get(k, k))
+    complaint_df["status_color"] = complaint_df["status"].map(lambda k: STATUS_COLORS.get(k, "#6B7280"))
+    complaint_df["inner_dot_size"] = complaint_df["status"].map(
+        {
+            "filed": 4.0,
+            "assigned": 4.8,
+            "in_progress": 5.8,
+            "resolved": 4.2,
+            "escalated": 7.2,
+        }
+    ).fillna(4.6)
+    complaint_df["marker_size"] = 6
+
+    def _jitter(value: str, scale: float = 0.0008) -> tuple[float, float]:
+        digest = md5(value.encode("utf-8")).hexdigest()
+        lat_raw = int(digest[:8], 16)
+        lon_raw = int(digest[8:16], 16)
+        lat_offset = ((lat_raw % 2000) - 1000) / 1000 * scale
+        lon_offset = ((lon_raw % 2000) - 1000) / 1000 * scale
+        return lat_offset, lon_offset
+
+    complaint_df["j_latitude"] = complaint_df.apply(
+        lambda row: row["latitude"] + _jitter(str(row.get("complaint_id", "")))[0],
+        axis=1,
+    )
+    complaint_df["j_longitude"] = complaint_df.apply(
+        lambda row: row["longitude"] + _jitter(str(row.get("complaint_id", "")))[1],
+        axis=1,
+    )
+
+    try:
+        import folium
+        from streamlit_folium import st_folium
+
+        center_lat = complaint_df["j_latitude"].mean()
+        center_lon = complaint_df["j_longitude"].mean()
+        m = folium.Map(location=[center_lat, center_lon], zoom_start=12, tiles="OpenStreetMap")
+
+        if hotspots_df is not None and not hotspots_df.empty:
+            max_count = max(int(hotspots_df["complaint_count"].max()), 1)
+            for _, row in hotspots_df.iterrows():
+                radius = 10 + int((row["complaint_count"] / max_count) * 18)
+                hex_color = CATEGORY_COLORS.get(row["category"], "#6B7280")
+                folium.CircleMarker(
+                    location=[row["latitude"], row["longitude"]],
+                    radius=radius,
+                    color=hex_color,
+                    fill=True,
+                    fill_color=hex_color,
+                    fill_opacity=0.12,
+                    weight=2,
+                    tooltip=f"{row['category_label']}: {row['complaint_count']} complaints",
+                ).add_to(m)
+
+        for _, row in complaint_df.iterrows():
+            hex_color = row["status_color"]
+            popup_html = f"""
+            <div style="min-width:220px;font-family:sans-serif;font-size:13px">
+                <b style="font-size:14px">{row['complaint_id']}</b><br>
+                {row['category_label']}<br>
+                {row.get('sub_category_label', '')}<br>
+                <hr style="margin:4px 0">
+                Zone: <b>{row['zone']}</b><br>
+                Status: <b>{row['status_label']}</b><br>
+                Ward: <b>{row.get('ward', '—')}</b>
+            </div>
+            """
+            folium.CircleMarker(
+                location=[row["j_latitude"], row["j_longitude"]],
+                radius=4.5,
+                color=hex_color,
+                fill=True,
+                fill_color=hex_color,
+                fill_opacity=0.9,
+                weight=1.5,
+                popup=folium.Popup(popup_html, max_width=280),
+                tooltip=f"{row['complaint_id']} — {row['category_label']}",
+            ).add_to(m)
+
+        st_folium(m, width=None, height=height, returned_objects=[])
+        return
+    except Exception:
+        fig = px.scatter_mapbox(
+            complaint_df,
+            lat="j_latitude",
+            lon="j_longitude",
+            color="status_label",
+            size="marker_size",
+            size_max=10,
+            hover_name="complaint_id",
+            hover_data={
+                "zone": True,
+                "status_label": True,
+                "category_label": False,
+                "latitude": False,
+                "longitude": False,
+                "j_latitude": False,
+                "j_longitude": False,
+            },
+            color_discrete_map={STATUS_LABELS.get(k, k): v for k, v in STATUS_COLORS.items()},
+            zoom=11,
+            height=height,
+        )
+        fig.update_layout(
+            mapbox_style="open-street-map",
+            margin=dict(l=0, r=0, t=0, b=0),
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            legend_title_text="Status",
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+
+def _render_zone_bubble_map(zone_hotspots: list[dict], complaints: list[dict], height: int = 520) -> None:
+    """Render large zone-level bubbles for chronic hotspots."""
+    if not zone_hotspots:
+        st.info("No zone-level chronic hotspots available for the selected filters.")
+        return
+
+    complaint_df = complaints_to_df(complaints)
+    if complaint_df.empty:
+        st.info("No complaint rows available to render inside the chronic hotspot bubbles.")
+        return
+
+    complaint_df = complaint_df.dropna(subset=["latitude", "longitude"]).copy()
+    if complaint_df.empty:
+        st.info("No complaint coordinates available to render inside the chronic hotspot bubbles.")
+        return
+
+    complaint_df["status_label"] = complaint_df["status"].map(lambda k: STATUS_LABELS.get(k, k))
+    complaint_df["status_color"] = complaint_df["status"].map(lambda k: STATUS_COLORS.get(k, "#6B7280"))
+    complaint_df["inner_dot_size"] = complaint_df["status"].map(
+        {
+            "filed": 4.0,
+            "assigned": 4.8,
+            "in_progress": 5.8,
+            "resolved": 4.2,
+            "escalated": 7.2,
+        }
+    ).fillna(4.6)
+
+    zone_centers = {
+        "Zone North": (13.052, 77.563),
+        "Zone South": (12.872, 77.548),
+        "Zone East": (12.961, 77.651),
+        "Zone West": (12.981, 77.461),
+        "Zone Central": (12.974, 77.578),
+    }
+
+    zone_df = {}
+    for row in zone_hotspots:
+        zone_name = row.get("zone", "Unknown")
+        current = zone_df.get(zone_name)
+        severity_rank = {"Critical": 3, "High": 2, "Medium": 1}.get(row.get("severity_label"), 0)
+        if current is None or severity_rank > current["severity_rank"] or (
+            severity_rank == current["severity_rank"] and row.get("complaint_count", 0) > current["complaint_count"]
+        ):
+            zone_df[zone_name] = {
+                "zone": zone_name,
+                "complaint_count": 0,
+                "severity_rank": severity_rank,
+                "severity_label": row.get("severity_label", "Medium"),
+                "badge_color": row.get("badge_color", "#6B7280"),
+                "category_label": row.get("category_label") or CATEGORY_LABELS.get(row.get("category"), row.get("category")),
+                "sub_category_label": row.get("sub_category_label") or row.get("sub_category"),
+                "recommendation": row.get("recommendation", "Investigate the dominant repeat complaint cluster."),
+            }
+        zone_df[zone_name]["complaint_count"] += int(row.get("complaint_count", 0))
+
+    bubbles = list(zone_df.values())
+
+    try:
+        import folium
+        from streamlit_folium import st_folium
+
+        center_lat = sum(zone_centers.get(b["zone"], (12.974, 77.578))[0] for b in bubbles) / len(bubbles)
+        center_lon = sum(zone_centers.get(b["zone"], (12.974, 77.578))[1] for b in bubbles) / len(bubbles)
+        m = folium.Map(location=[center_lat, center_lon], zoom_start=11, tiles="OpenStreetMap")
+
+        max_count = max(int(b["complaint_count"]) for b in bubbles) or 1
+        for bubble in bubbles:
+            lat, lon = zone_centers.get(bubble["zone"], (12.974, 77.578))
+            radius = 18 + int((bubble["complaint_count"] / max_count) * 28)
+
+            zone_complaints = complaint_df[complaint_df["zone"] == bubble["zone"]]
+            if not zone_complaints.empty:
+                inner_scale = 0.006 + (radius / 1000)
+                for _, complaint in zone_complaints.iterrows():
+                    digest = md5(str(complaint["complaint_id"]).encode("utf-8")).hexdigest()
+                    lat_offset = ((int(digest[:8], 16) % 2000) - 1000) / 1000 * inner_scale
+                    lon_offset = ((int(digest[8:16], 16) % 2000) - 1000) / 1000 * inner_scale
+                    folium.CircleMarker(
+                        location=[lat + lat_offset, lon + lon_offset],
+                        radius=float(complaint["inner_dot_size"]),
+                        color=complaint["status_color"],
+                        fill=True,
+                        fill_color=complaint["status_color"],
+                        fill_opacity=0.95,
+                        weight=1,
+                        tooltip=f"{complaint['complaint_id']} - {complaint['status_label']}",
+                    ).add_to(m)
+
+            folium.CircleMarker(
+                location=[lat, lon],
+                radius=radius,
+                color=bubble["badge_color"],
+                fill=True,
+                fill_color=bubble["badge_color"],
+                fill_opacity=0.30,
+                weight=3,
+                tooltip=f"{bubble['zone']} - {bubble['complaint_count']} chronic complaints",
+                popup=folium.Popup(
+                    f"""
+                    <div style="min-width:220px;font-family:sans-serif;font-size:13px">
+                        <b style="font-size:14px">{bubble['zone']}</b><br>
+                        Severity: <b>{bubble['severity_label']}</b><br>
+                        Chronic complaints: <b>{bubble['complaint_count']}</b><br>
+                        Top issue: {bubble['category_label']} / {bubble['sub_category_label']}<br>
+                        <hr style="margin:4px 0">
+                        <i style="color:#555">{bubble['recommendation']}</i>
+                    </div>
+                    """,
+                    max_width=280,
+                ),
+            ).add_to(m)
+
+        st_folium(m, width=None, height=height, returned_objects=[])
+        return
+    except Exception:
+        import pandas as _pd
+        import plotly.graph_objects as go
+
+        bubble_df = _pd.DataFrame(bubbles)
+        bubble_df["latitude"] = bubble_df["zone"].map(lambda z: zone_centers.get(z, (12.974, 77.578))[0])
+        bubble_df["longitude"] = bubble_df["zone"].map(lambda z: zone_centers.get(z, (12.974, 77.578))[1])
+        fig = go.Figure()
+
+        for _, row in bubble_df.iterrows():
+            fig.add_trace(
+                go.Scattermapbox(
+                    lat=[row["latitude"]],
+                    lon=[row["longitude"]],
+                    mode="markers",
+                    marker=dict(
+                        size=18 + min(int(row["complaint_count"]) * 2, 42),
+                        color=row["badge_color"],
+                        opacity=0.30,
+                    ),
+                    name=row["zone"],
+                    hovertext=(
+                        f"{row['zone']}<br>"
+                        f"Severity: {row['severity_label']}<br>"
+                        f"Chronic complaints: {row['complaint_count']}"
+                    ),
+                    hoverinfo="text",
+                )
+            )
+
+        for _, complaint in complaint_df.iterrows():
+            lat, lon = zone_centers.get(complaint["zone"], (12.974, 77.578))
+            digest = md5(str(complaint["complaint_id"]).encode("utf-8")).hexdigest()
+            inner_scale = 0.006
+            lat_offset = ((int(digest[:8], 16) % 2000) - 1000) / 1000 * inner_scale
+            lon_offset = ((int(digest[8:16], 16) % 2000) - 1000) / 1000 * inner_scale
+            fig.add_trace(
+                go.Scattermapbox(
+                    lat=[lat + lat_offset],
+                    lon=[lon + lon_offset],
+                    mode="markers",
+                    marker=dict(size=float(complaint["inner_dot_size"]) * 1.7, color=complaint["status_color"]),
+                    name=complaint["status_label"],
+                    hovertext=(
+                        f"{complaint['complaint_id']}<br>"
+                        f"{complaint['zone']}<br>"
+                        f"Status: {complaint['status_label']}"
+                    ),
+                    hoverinfo="text",
+                    showlegend=False,
+                )
+            )
+
+        fig.update_layout(
+            mapbox_style="open-street-map",
+            mapbox=dict(
+                center=dict(
+                    lat=bubble_df["latitude"].mean(),
+                    lon=bubble_df["longitude"].mean(),
+                ),
+                zoom=11,
+            ),
+            margin=dict(l=0, r=0, t=0, b=0),
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            height=height,
         )
         st.plotly_chart(fig, use_container_width=True)
 
@@ -811,25 +1126,26 @@ with tab_map:
     zone_tag = f" - {active_zone}" if active_zone else ""
     st.header(f"Chronic Problem Hotspots{zone_tag}")
     st.caption(
-        "Markers show locations with repeat complaints. "
-        "Size reflects complaint count. Click a marker for details."
+        "Each complaint is shown as a separate dot, with clustered hotspots lightly outlined behind them."
     )
 
     hs_df = hotspots_to_df(hotspots_data)
+    complaint_dots = load_complaints(active_zone, active_category, None)
 
-    if hs_df.empty:
+    if hs_df.empty and not complaint_dots:
         st.info("No hotspots identified for the selected zone.")
     else:
-        _render_hotspot_map(hs_df, height=520)
+        _render_complaint_dot_map(complaint_dots, hotspots_df=hs_df, height=520)
 
         # Legend
         st.divider()
-        cols = st.columns(len(CATEGORY_COLORS))
-        for col, (key, color) in zip(cols, CATEGORY_COLORS.items()):
+        st.caption("Dot colors represent complaint status; faint outlines show the broader hotspot clusters.")
+        cols = st.columns(len(STATUS_COLORS))
+        for col, (key, color) in zip(cols, STATUS_COLORS.items()):
             col.markdown(
                 f'<span style="display:inline-block;width:12px;height:12px;'
                 f'border-radius:50%;background:{color};margin-right:6px"></span>'
-                f'{CATEGORY_LABELS.get(key, key)}',
+                f'{STATUS_LABELS.get(key, key)}',
                 unsafe_allow_html=True,
             )
 
@@ -1111,10 +1427,10 @@ with tab_hotspot_ai:
     with col_w1:
         window_days = st.slider("Analysis window (days)", min_value=7, max_value=90, value=60, step=7)
 
+    all_c = load_complaints(active_zone, active_category, None)
+
     @st.cache_data(ttl=60, show_spinner=False)
     def load_ai_hotspots(zone: str | None, category: str | None, days: int) -> list:
-        from lib.api import get_complaints as _gc
-        all_c = _gc()
         return identify_chronic_hotspots(all_c, days_window=days, zone=zone, category=category)
 
     with st.spinner("Running spatial clustering..."):
@@ -1142,9 +1458,10 @@ with tab_hotspot_ai:
             ai_hotspots_df = _pd.DataFrame(ai_hotspots)
             ai_hotspots_df["category_label"] = ai_hotspots_df["category"].map(lambda k: CATEGORY_LABELS.get(k, k))
             ai_hotspots_df["sub_category_label"] = ai_hotspots_df["sub_category"].map(lambda k: SUB_CATEGORY_LABELS.get(k, k))
-            _render_hotspot_map(ai_hotspots_df, height=500)
+            _render_zone_bubble_map(ai_hotspots_df.to_dict("records"), all_c, height=500)
 
         st.divider()
+        st.caption("Bubble size shows the chronic load for each zone; colors reflect the severity of the worst hotspot in that zone.")
         st.subheader("Ranked hotspot details")
 
         for rank, h in enumerate(ai_hotspots, 1):
