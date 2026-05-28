@@ -12,12 +12,50 @@ import streamlit as st
 import plotly.express as px
 import streamlit.components.v1 as components
 
+
 st.set_page_config(
     page_title="Karnataka Urban Analytics",
     layout="wide",
     initial_sidebar_state="collapsed",
     menu_items={"About": "Karnataka Municipal Urban Analytics Dashboard"},
 )
+
+# --- Language selection in top-right corner ---
+if "ui_language" not in st.session_state:
+    st.session_state["ui_language"] = "kn"
+
+_lang_col1, _lang_col2, _lang_col3 = st.columns([8, 1, 1])
+with _lang_col3:
+    _LANG_OPTIONS = [("kn", "Kannada"), ("en", "English"), ("bi", "Bilingual")]
+    _LANG_INDEX = {"kn": 0, "en": 1, "bi": 2}
+    _prev_lang = st.session_state["ui_language"]
+    _lang_choice = st.selectbox(
+        "Language",
+        options=_LANG_OPTIONS,
+        format_func=lambda x: x[1],
+        index=_LANG_INDEX.get(_prev_lang, 0),
+        key="ui_language_select",
+    )
+    if _lang_choice[0] != _prev_lang:
+        st.session_state["ui_language"] = _lang_choice[0]
+        # Clear widget state that stores language-specific option strings,
+        # so dropdowns re-default to the freshly-translated options.
+        for _stale_key in ("zone_filter", "category_filter"):
+            st.session_state.pop(_stale_key, None)
+        st.rerun()
+
+
+def _ka(english_text: str) -> str:
+    """Translate English -> selected UI language for dynamic labels (zones, categories)."""
+    lang = st.session_state.get("ui_language", "kn")
+    if lang == "en":
+        return english_text
+    translated = translate_text(english_text, "en-IN", "kn-IN")
+    if not translated:
+        return english_text
+    if lang == "bi":
+        return f"{translated} ({english_text})"
+    return translated
 
 st.markdown(
     """
@@ -364,56 +402,74 @@ from lib.labels import (
     STATUSES,
     CATEGORIES,
     LANGUAGE_LABELS,
+    ui_text,
+    bilingual_text,
 )
-from lib.sarvam_text import normalize_language_code, language_label
+from lib.sarvam_text import normalize_language_code, language_label, translate_text
 
 # ------------------------------------------------------------------
 # Sidebar
 # ------------------------------------------------------------------
 # Horizontal filter bar (replaces sidebar)
 # ------------------------------------------------------------------
+_hero_kicker = bilingual_text("ಮುನ್ಸಿಪಲ್ ಗುಪ್ತಚರ ಡ್ಯಾಶ್‌ಬೋರ್ಡ್", "Municipal intelligence dashboard")
+_hero_title = bilingual_text("ಕರ್ನಾಟಕ ನಗರ ವಿಶ್ಲೇಷಣೆ", "Karnataka Urban Analytics")
+_hero_subtitle = bilingual_text(
+    "ನಾಗರಿಕ ಕಾರ್ಯಾಚರಣೆಗಳಿಗಾಗಿ ಶುದ್ಧವಾದ ನಿಯಂತ್ರಣ ಕೇಂದ್ರ — ದೂರುಗಳನ್ನು ಗಮನಿಸಿ, ಹಾಟ್‌ಸ್ಪಾಟ್‌ಗಳನ್ನು ಗುರುತಿಸಿ, ಮತ್ತು ಎಲ್ಲ ವಲಯಗಳಲ್ಲಿ ಕ್ರಮವನ್ನು ಆದ್ಯತೆಯಂತೆ ಕ್ರಮಗೊಳಿಸಿ.",
+    "A polished command center for civic operations — monitor complaints, identify hotspots, and prioritize action across every zone in one glance.",
+)
+_hero_chip_1 = bilingual_text("ಲೈವ್ ಸಾರಾಂಶ ಮೆಟ್ರಿಕ್ಸ್", "Live summary metrics")
+_hero_chip_2 = bilingual_text("ವಲಯ ಮತ್ತು ವರ್ಗ ಫಿಲ್ಟರ್‌ಗಳು", "Zone and category filters")
+_hero_chip_3 = bilingual_text("AI ಹಾಟ್‌ಸ್ಪಾಟ್ ಮತ್ತು ಯೋಜನೆ ವೀಕ್ಷಣೆಗಳು", "AI hotspot and planning views")
+
 st.markdown(
-    """
+    f"""
     <div class="hero-shell">
-        <div class="hero-kicker">Municipal intelligence dashboard</div>
-        <div class="hero-title">Karnataka Urban Analytics</div>
+        <div class="hero-kicker">{escape(_hero_kicker)}</div>
+        <div class="hero-title">{escape(_hero_title)}</div>
         <div class="hero-subtitle">
-            A polished command center for civic operations - monitor complaints, identify hotspots,
-            and prioritize action across every zone in one glance.
+            {escape(_hero_subtitle)}
         </div>
         <div class="hero-meta">
-            <span class="hero-chip">Live summary metrics</span>
-            <span class="hero-chip">Zone and category filters</span>
-            <span class="hero-chip">AI hotspot and planning views</span>
+            <span class="hero-chip">{escape(_hero_chip_1)}</span>
+            <span class="hero-chip">{escape(_hero_chip_2)}</span>
+            <span class="hero-chip">{escape(_hero_chip_3)}</span>
         </div>
     </div>
     """,
     unsafe_allow_html=True,
 )
-st.title("Karnataka Municipal — Urban Analytics Dashboard")
-st.caption("Use the filters to sharpen the view across all tabs and focus on what needs attention now.")
+st.title(ui_text("app_title"))
+st.caption(ui_text("app_caption"))
 
 _fc1, _fc2, _fc3, _fc4 = st.columns([2, 2, 1, 2])
 
 with _fc1:
-    ALL_ZONES_LABEL = "All Zones"
-    zone_options = [ALL_ZONES_LABEL, "Zone North", "Zone South", "Zone East", "Zone West", "Zone Central"]
+    ALL_ZONES_LABEL = ui_text("all_zones")
+    zone_options = [
+        ALL_ZONES_LABEL,
+        _ka("Zone North"),
+        _ka("Zone South"),
+        _ka("Zone East"),
+        _ka("Zone West"),
+        _ka("Zone Central"),
+    ]
     selected_zone_label: str = st.selectbox(
-        "Filter by Zone",
+        ui_text("filter_by_zone"),
         options=zone_options,
         key="zone_filter",
-        help="Narrow every chart and table to a single municipal zone.",
+        help=_ka("Narrow every chart and table to a single municipal zone."),
     )
     active_zone: str | None = None if selected_zone_label == ALL_ZONES_LABEL else selected_zone_label
 
 with _fc2:
-    ALL_CATEGORIES_LABEL = "All Categories"
-    category_options = [ALL_CATEGORIES_LABEL] + [CATEGORY_LABELS[k] for k in CATEGORIES]
+    ALL_CATEGORIES_LABEL = ui_text("all_categories")
+    category_options = [ALL_CATEGORIES_LABEL] + [_ka(CATEGORY_LABELS[k]) for k in CATEGORIES]
     selected_category_label: str = st.selectbox(
-        "Filter by Category",
+        ui_text("filter_by_category"),
         options=category_options,
         key="category_filter",
-        help="Narrow every chart and table to a single problem category.",
+        help=_ka("Narrow every chart and table to a single problem category."),
     )
     active_category: str | None = None if selected_category_label == ALL_CATEGORIES_LABEL else next(
         (k for k, v in CATEGORY_LABELS.items() if v == selected_category_label), None
@@ -425,17 +481,17 @@ with _fc3:
 
 with _fc4:
     st.write("")
-    if st.button("↻ Refresh Data", use_container_width=True):
+    if st.button(ui_text("refresh_data"), use_container_width=True):
         st.cache_data.clear()
         st.rerun()
     if is_mock_mode():
-        st.info("Mock mode — data is simulated.", icon="🔶")
+        st.info(ui_text("mock_mode"), icon="🔶")
     else:
-        st.success(f"Live API: {api_base_url()}", icon="✅")
+        st.success(f"{ui_text('live_api')}: {api_base_url()}", icon="✅")
 
 st.caption(
-    f"Current filters: Zone = {selected_zone_label}, Category = {selected_category_label}. "
-    "Use the filters to narrow or broaden the view across the dashboard."
+    f"{ui_text('current_filters')}: {ui_text('zone')} = {selected_zone_label}, {ui_text('category')} = {selected_category_label}. "
+    + bilingual_text("ಫಿಲ್ಟರ್‌ಗಳನ್ನು ಬಳಸಿ ವೀಕ್ಷಣೆಯನ್ನು ಸಂಕುಚಿತಗೊಳಿಸಿ ಅಥವಾ ವಿಸ್ತರಿಸಿ.", "Use the filters to narrow or broaden the view across the dashboard.")
 )
 
 st.divider()
@@ -473,14 +529,14 @@ def load_complaint_detail(complaint_id: str) -> dict:
 
 
 # Load data used across multiple tabs
-with st.spinner("Loading data..."):
+with st.spinner(ui_text("loading_data")):
     try:
         summary = load_summary(active_zone, active_category)
         trends_data = load_trends(active_zone, active_category)
         hotspots_data = load_hotspots(active_zone, active_category)
     except (ConnectionError, RuntimeError, TimeoutError) as exc:
-        st.error(f"Could not load data: {exc}")
-        st.info("Set USE_MOCK_DATA=true in your .env file to use simulated data while the backend is offline.")
+        st.error(bilingual_text("ಡೇಟಾ ಲೋಡ್ ಆಗಲಿಲ್ಲ", "Could not load data") + f": {exc}")
+        st.info(bilingual_text("ಬ್ಯಾಕೆಂಡ್ ಆಫ್ಲೈನ್ ಇದ್ದರೆ .env ನಲ್ಲಿ USE_MOCK_DATA=true ಹಾಕಿ.", "Set USE_MOCK_DATA=true in your .env file to use simulated data while the backend is offline."))
         st.stop()
 
 
@@ -567,12 +623,12 @@ def _render_complaint_dot_map(complaints: list[dict], hotspots_df=None, height: 
 
     complaint_df = complaints_to_df(complaints)
     if complaint_df.empty:
-        st.info("No complaint coordinates available for the selected filters.")
+        st.info(bilingual_text("ಆಯ್ದ ಫಿಲ್ಟರ್‌ಗಳಿಗೆ ದೂರು ಸ್ಥಳಾಂಕಗಳು ಇಲ್ಲ.", "No complaint coordinates available for the selected filters."))
         return
 
     complaint_df = complaint_df.dropna(subset=["latitude", "longitude"]).copy()
     if complaint_df.empty:
-        st.info("No complaint coordinates available for the selected filters.")
+        st.info(bilingual_text("ಆಯ್ದ ಫಿಲ್ಟರ್‌ಗಳಿಗೆ ದೂರು ಸ್ಥಳಾಂಕಗಳು ಇಲ್ಲ.", "No complaint coordinates available for the selected filters."))
         return
 
     complaint_df["category_label"] = complaint_df["category"].map(lambda k: CATEGORY_LABELS.get(k, k))
@@ -638,8 +694,8 @@ def _render_complaint_dot_map(complaints: list[dict], hotspots_df=None, height: 
                 {row['category_label']}<br>
                 {row.get('sub_category_label', '')}<br>
                 <hr style="margin:4px 0">
-                Zone: <b>{row['zone']}</b><br>
-                Status: <b>{row['status_label']}</b><br>
+                {ui_text('zone')}: <b>{row['zone']}</b><br>
+                {ui_text('status')}: <b>{row['status_label']}</b><br>
                 Ward: <b>{row.get('ward', '—')}</b>
             </div>
             """
@@ -692,17 +748,17 @@ def _render_complaint_dot_map(complaints: list[dict], hotspots_df=None, height: 
 def _render_zone_bubble_map(zone_hotspots: list[dict], complaints: list[dict], height: int = 520) -> None:
     """Render large zone-level bubbles for chronic hotspots."""
     if not zone_hotspots:
-        st.info("No zone-level chronic hotspots available for the selected filters.")
+        st.info(bilingual_text("ಆಯ್ದ ಫಿಲ್ಟರ್‌ಗಳಿಗೆ ವಲಯಮಟ್ಟದ ದೀರ್ಘಕಾಲೀನ ಹಾಟ್‌ಸ್ಪಾಟ್‌ಗಳು ಇಲ್ಲ.", "No zone-level chronic hotspots available for the selected filters."))
         return
 
     complaint_df = complaints_to_df(complaints)
     if complaint_df.empty:
-        st.info("No complaint rows available to render inside the chronic hotspot bubbles.")
+        st.info(bilingual_text("ದೀರ್ಘಕಾಲೀನ ಹಾಟ್‌ಸ್ಪಾಟ್ ಗುಬ್ಬೆಗಳ ಒಳಗೆ ಪ್ರದರ್ಶಿಸಲು ದೂರು ಸಾಲುಗಳಿಲ್ಲ.", "No complaint rows available to render inside the chronic hotspot bubbles."))
         return
 
     complaint_df = complaint_df.dropna(subset=["latitude", "longitude"]).copy()
     if complaint_df.empty:
-        st.info("No complaint coordinates available to render inside the chronic hotspot bubbles.")
+        st.info(bilingual_text("ಗುಬ್ಬೆಗಳ ಒಳಗೆ ಪ್ರದರ್ಶಿಸಲು ದೂರು ಸ್ಥಳಾಂಕಗಳು ಇಲ್ಲ.", "No complaint coordinates available to render inside the chronic hotspot bubbles."))
         return
 
     complaint_df["status_label"] = complaint_df["status"].map(lambda k: STATUS_LABELS.get(k, k))
@@ -791,9 +847,9 @@ def _render_zone_bubble_map(zone_hotspots: list[dict], complaints: list[dict], h
                     f"""
                     <div style="min-width:220px;font-family:sans-serif;font-size:13px">
                         <b style="font-size:14px">{bubble['zone']}</b><br>
-                        Severity: <b>{bubble['severity_label']}</b><br>
-                        Chronic complaints: <b>{bubble['complaint_count']}</b><br>
-                        Top issue: {bubble['category_label']} / {bubble['sub_category_label']}<br>
+                        {bilingual_text("ತೀವ್ರತೆ", "Severity")}: <b>{bubble['severity_label']}</b><br>
+                        {bilingual_text("ದೀರ್ಘಕಾಲೀನ ದೂರುಗಳು", "Chronic complaints")}: <b>{bubble['complaint_count']}</b><br>
+                        {bilingual_text("ಮುಖ್ಯ ಸಮಸ್ಯೆ", "Top issue")}: {bubble['category_label']} / {bubble['sub_category_label']}<br>
                         <hr style="margin:4px 0">
                         <i style="color:#555">{bubble['recommendation']}</i>
                     </div>
@@ -827,8 +883,8 @@ def _render_zone_bubble_map(zone_hotspots: list[dict], complaints: list[dict], h
                     name=row["zone"],
                     hovertext=(
                         f"{row['zone']}<br>"
-                        f"Severity: {row['severity_label']}<br>"
-                        f"Chronic complaints: {row['complaint_count']}"
+                        f"{bilingual_text('ತೀವ್ರತೆ', 'Severity')}: {row['severity_label']}<br>"
+                        f"{bilingual_text('ದೀರ್ಘಕಾಲೀನ ದೂರುಗಳು', 'Chronic complaints')}: {row['complaint_count']}"
                     ),
                     hoverinfo="text",
                 )
@@ -883,7 +939,15 @@ if "overview_drill" not in st.session_state:
 # Tabs
 # ------------------------------------------------------------------
 tab_overview, tab_analytics, tab_map, tab_planning, tab_hotspot_ai, tab_tracker, tab_table = st.tabs(
-    ["Overview", "Analytics", "Hotspot Map", "Preventive Planning", "Chronic Hotspots", "Track & Manage", "Complaints"]
+    [
+        ui_text("tab_overview"),
+        ui_text("tab_analytics"),
+        ui_text("tab_hotspot_map"),
+        ui_text("tab_planning"),
+        ui_text("tab_chronic"),
+        ui_text("tab_tracker"),
+        ui_text("tab_complaints"),
+    ]
 )
 
 # =====================================================================
@@ -891,8 +955,8 @@ tab_overview, tab_analytics, tab_map, tab_planning, tab_hotspot_ai, tab_tracker,
 # =====================================================================
 with tab_overview:
     zone_tag = f" - {active_zone}" if active_zone else ""
-    st.header(f"City at a Glance{zone_tag}")
-    st.caption("Updated every 60 seconds. Click Refresh in the sidebar to force an update.")
+    st.header(f"{ui_text('overview_title')}{zone_tag}")
+    st.caption(f"{ui_text('overview_caption')} Refresh in the sidebar to force an update.")
     total = summary["total_complaints"]
     resolved = summary["by_status"].get("resolved", 0)
     open_count = total - resolved
@@ -904,29 +968,29 @@ with tab_overview:
 
     def _drill_button(key: str, col):
         active = st.session_state.overview_drill == key
-        btn_label = "▼ Hide" if active else "View →"
+        btn_label = bilingual_text("ಮರೆಮಾಡಿ ▼", "Hide") if active else bilingual_text("ವೀಕ್ಷಿಸಿ →", "View")
         if col.button(btn_label, key=f"btn_{key}", use_container_width=True):
             st.session_state.overview_drill = None if active else key
             st.rerun()
 
     with col1:
-        st.metric("Total Complaints", total)
+        st.metric(ui_text("total_complaints"), total)
         _drill_button("total", col1)
 
     with col2:
-        st.metric("Resolved", resolved)
+        st.metric(ui_text("resolved"), resolved)
         _drill_button("resolved", col2)
 
     with col3:
-        st.metric("Open Complaints", open_count)
+        st.metric(ui_text("open_complaints"), open_count)
         _drill_button("open", col3)
 
     with col4:
-        st.metric("SLA Breached", sla_breached)
+        st.metric(ui_text("sla_breached"), sla_breached)
         _drill_button("sla", col4)
 
     with col5:
-        st.metric("Escalated", escalated)
+        st.metric(ui_text("escalated"), escalated)
         _drill_button("escalated", col5)
 
     # Resolution rate banner below the metric cards
@@ -936,7 +1000,7 @@ with tab_overview:
                     background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;
                     padding:10px 20px;margin-top:12px;">
             <span style="font-size:0.78rem;font-weight:600;text-transform:uppercase;
-                         letter-spacing:0.05em;color:#15803d;">Resolution rate</span>
+                         letter-spacing:0.05em;color:#15803d;">{ui_text('resolution_rate')}</span>
             <span style="font-size:1.6rem;font-weight:700;color:#15803d;">{pct_resolved}%</span>
             <span style="font-size:0.82rem;color:#4ade80;">
                 {resolved} of {total} complaints resolved
@@ -977,7 +1041,7 @@ with tab_overview:
                 drilled = all_c
 
             drilled = drilled.sort_values("created_at", ascending=False)
-            st.caption(f"{len(drilled)} complaints")
+            st.caption(bilingual_text(f"{len(drilled)} ದೂರುಗಳು", f"{len(drilled)} complaints"))
 
             _cols_map = {
                 "complaint_id":       "Complaint ID",
@@ -998,12 +1062,12 @@ with tab_overview:
                 height=350,
             )
         else:
-            st.info("No complaints found for the current filters.")
+            st.info(ui_text("no_complaints"))
 
     st.divider()
 
     # Quick status breakdown as a horizontal stacked bar
-    st.subheader("Resolution pipeline")
+    st.subheader(bilingual_text("ಪರಿಹಾರ ಹಂತ", "Resolution pipeline"))
     status_df = summary_to_status_df(summary)
     if not status_df.empty:
         fig = px.bar(
@@ -1036,13 +1100,13 @@ with tab_overview:
 # =====================================================================
 with tab_analytics:
     zone_tag = f" - {active_zone}" if active_zone else ""
-    st.header(f"Cross-Zone Analytics{zone_tag}")
+    st.header(f"{ui_text('analytics_title')}{zone_tag}")
 
     # Row 1: category + zone
     col_cat, col_zone = st.columns(2)
 
     with col_cat:
-        st.subheader("Complaints by category")
+        st.subheader(bilingual_text("ವರ್ಗವಾರು ದೂರುಗಳು", "Complaints by category"))
         cat_df = summary_to_category_df(summary)
         if not cat_df.empty:
             fig = px.bar(
@@ -1060,7 +1124,7 @@ with tab_analytics:
             fig.update_layout(
                 showlegend=False,
                 margin=dict(l=0, r=20, t=10, b=0),
-                xaxis_title="Number of complaints",
+                xaxis_title=bilingual_text("ದೂರುಗಳ ಸಂಖ್ಯೆ", "Number of complaints"),
                 yaxis_title="",
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)",
@@ -1069,7 +1133,7 @@ with tab_analytics:
             st.plotly_chart(fig, use_container_width=True)
 
     with col_zone:
-        st.subheader("Complaints by zone")
+        st.subheader(bilingual_text("ವಲಯವಾರು ದೂರುಗಳು", "Complaints by zone"))
         zone_df = summary_to_zone_df(summary)
         if not zone_df.empty:
             fig = px.bar(
@@ -1084,7 +1148,7 @@ with tab_analytics:
             fig.update_layout(
                 showlegend=False,
                 margin=dict(l=0, r=20, t=10, b=0),
-                xaxis_title="Number of complaints",
+                xaxis_title=bilingual_text("ದೂರುಗಳ ಸಂಖ್ಯೆ", "Number of complaints"),
                 yaxis_title="",
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)",
@@ -1093,7 +1157,7 @@ with tab_analytics:
             st.plotly_chart(fig, use_container_width=True)
 
     # Row 2: 30-day trend
-    st.subheader("Complaint trend - last 30 days (by category)")
+    st.subheader(bilingual_text("ಕಳೆದ 30 ದಿನಗಳ ದೂರು ಟ್ರೆಂಡ್ (ವರ್ಗವಾರು)", "Complaint trend - last 30 days (by category)"))
     trend_df = trends_to_df(trends_data)
     if not trend_df.empty:
         # Build color map using human-readable labels
@@ -1107,9 +1171,9 @@ with tab_analytics:
             height=350,
         )
         fig.update_layout(
-            legend_title_text="Category",
-            xaxis_title="Date",
-            yaxis_title="Complaints",
+            legend_title_text=bilingual_text("ವರ್ಗ", "Category"),
+            xaxis_title=bilingual_text("ದಿನಾಂಕ", "Date"),
+            yaxis_title=bilingual_text("ದೂರುಗಳು", "Complaints"),
             margin=dict(l=0, r=0, t=10, b=0),
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
@@ -1117,29 +1181,29 @@ with tab_analytics:
         )
         st.plotly_chart(fig, use_container_width=True)
     else:
-        st.info("No trend data available for the selected zone/period.")
+        st.info(bilingual_text("ಆಯ್ದ ವಲಯ/ಅವಧಿಗೆ ಟ್ರೆಂಡ್ ಡೇಟಾ ಇಲ್ಲ.", "No trend data available for the selected zone/period."))
 
 # =====================================================================
 # Tab 3: Hotspot Map
 # =====================================================================
 with tab_map:
     zone_tag = f" - {active_zone}" if active_zone else ""
-    st.header(f"Chronic Problem Hotspots{zone_tag}")
+    st.header(f"{ui_text('hotspot_title')}{zone_tag}")
     st.caption(
-        "Each complaint is shown as a separate dot, with clustered hotspots lightly outlined behind them."
+        ui_text("hotspot_caption") + " Each complaint is shown as a separate dot, with clustered hotspots lightly outlined behind them."
     )
 
     hs_df = hotspots_to_df(hotspots_data)
     complaint_dots = load_complaints(active_zone, active_category, None)
 
     if hs_df.empty and not complaint_dots:
-        st.info("No hotspots identified for the selected zone.")
+        st.info(ui_text("no_hotspots"))
     else:
         _render_complaint_dot_map(complaint_dots, hotspots_df=hs_df, height=520)
 
         # Legend
         st.divider()
-        st.caption("Dot colors represent complaint status; faint outlines show the broader hotspot clusters.")
+        st.caption(_ka("Dot colors represent complaint status; faint outlines show the broader hotspot clusters."))
         cols = st.columns(len(STATUS_COLORS))
         for col, (key, color) in zip(cols, STATUS_COLORS.items()):
             col.markdown(
@@ -1158,10 +1222,13 @@ with tab_planning:
     from lib.labels import SUB_CATEGORY_LABELS as _SCL, CATEGORY_LABELS as _CL
 
     zone_tag = f" — {active_zone}" if active_zone else ""
-    st.header(f"Preventive Planning Insights{zone_tag}")
+    st.header(f"{ui_text('planning_title')}{zone_tag}")
     st.caption(
-        "Data-driven analysis of complaint patterns to prioritise preventive "
-        "infrastructure investment. Sarvam turns the signals into an executive summary."
+        bilingual_text(
+            "ದೂರು ಮಾದರಿಗಳ ಆಧಾರದ ಮೇಲೆ ಪೂರ್ವಸಿದ್ಧತಾ ಮೂಲಸೌಕರ್ಯ ಹೂಡಿಕೆ ವಿಶ್ಲೇಷಣೆ.",
+            "Data-driven analysis of complaint patterns to prioritise preventive infrastructure investment.",
+        )
+        + " Sarvam turns the signals into an executive summary."
     )
 
     @st.cache_data(ttl=60, show_spinner=False)
@@ -1169,11 +1236,11 @@ with tab_planning:
         from lib.api import get_complaints as _gc
         return compute_preventive_insights(_gc(), days_window=60, zone=zone, category=category)
 
-    with st.spinner("Analysing complaint patterns…"):
+    with st.spinner(ui_text("loading_planning")):
         ins = load_planning_data(active_zone, active_category)
 
     if ins.get("empty"):
-        st.info("No complaint data available for the selected filters.")
+        st.info(ui_text("no_planning_data"))
     else:
         kpis = ins["kpis"]
 
@@ -1200,7 +1267,7 @@ with tab_planning:
                 category=category,
             )
 
-        with st.spinner("Drafting Sarvam executive summary..."):
+        with st.spinner(ui_text("drafting_summary")):
             ai_report = load_sarvam_report(active_zone, active_category)
 
         if not ai_report.get("ok"):
@@ -1218,17 +1285,18 @@ with tab_planning:
             }
 
         source_label = {
-            "fallback": "Deterministic fallback",
-            "local-fallback": "Local fallback",
-        }.get(ai_report.get("source"), "Sarvam")
+            "fallback": bilingual_text("ನಿಯಮಿತ ಬ್ಯಾಕಪ್", "Deterministic fallback"),
+            "local-fallback": bilingual_text("ಸ್ಥಳೀಯ ಬ್ಯಾಕಪ್", "Local fallback"),
+        }.get(ai_report.get("source"), bilingual_text("ಸಾರ್ವಂ", "Sarvam"))
+        summary_text = _ka(ai_report.get("executive_summary", ""))
         st.markdown(
             f"""
             <div class="panel-shell" style="margin-bottom:1rem;">
-                <div class="panel-kicker">Planning summary</div>
-                <div class="panel-title">AI narrative generated from live complaint signals</div>
-                <div class="panel-subtitle">{ai_report.get('executive_summary', '')}</div>
+                <div class="panel-kicker">{bilingual_text("ಯೋಜನಾ ಸಾರಾಂಶ", "Planning summary")}</div>
+                <div class="panel-title">{bilingual_text("ಲೈವ್ ದೂರು ಸಂಕೇತಗಳಿಂದ AI ವಿವರಣೆ", "AI narrative generated from live complaint signals")}</div>
+                <div class="panel-subtitle">{summary_text}</div>
                 <div style="margin-top:0.75rem;font-size:0.78rem;color:#64748b;">
-                    Source: <b>{source_label}</b> &nbsp;|&nbsp; Model used: <b>{ai_report.get('model_used', 'sarvam-30b')}</b>
+                    {bilingual_text("ಮೂಲ", "Source")}: <b>{source_label}</b> &nbsp;|&nbsp; {bilingual_text("ಮಾದರಿ", "Model used")}: <b>{ai_report.get('model_used', 'sarvam-30b')}</b>
                 </div>
             </div>
             """,
@@ -1239,11 +1307,11 @@ with tab_planning:
 
         # ── KPI banner ───────────────────────────────────────────────
         k1, k2, k3, k4, k5 = st.columns(5)
-        k1.metric("Total Complaints", kpis["total"])
-        k2.metric("Resolved", kpis["resolved"])
-        k3.metric("SLA Breached", kpis["sla_breached"])
-        k4.metric("Escalated", kpis["escalated"])
-        k5.metric("Resolution Rate", f"{kpis['resolution_rate']}%")
+        k1.metric(ui_text("total_complaints"), kpis["total"])
+        k2.metric(ui_text("resolved"), kpis["resolved"])
+        k3.metric(ui_text("sla_breached"), kpis["sla_breached"])
+        k4.metric(ui_text("escalated"), kpis["escalated"])
+        k5.metric(ui_text("resolution_rate"), f"{kpis['resolution_rate']}%")
         st.divider()
 
         # ── Top priority banner ──────────────────────────────────────
@@ -1285,7 +1353,7 @@ with tab_planning:
         left_col, right_col = st.columns([3, 2])
 
         with left_col:
-            st.subheader("Priority Investment Areas")
+            st.subheader(bilingual_text("ಪ್ರಮುಖ ಹೂಡಿಕೆ ಪ್ರದೇಶಗಳು", "Priority Investment Areas"))
             RISK_COLORS = {"Critical": "#EF4444", "High": "#F59E0B", "Medium": "#3B82F6"}
             for rank, area in enumerate(ins["priority_areas"], 1):
                 rc = RISK_COLORS.get(area["risk"], "#6B7280")
@@ -1312,14 +1380,14 @@ with tab_planning:
                             unsafe_allow_html=True,
                         )
                         m1, m2, m3, m4 = st.columns(4)
-                        m1.metric("Complaints", area["count"])
-                        m2.metric("Active Days", area["unique_days"])
-                        m3.metric("SLA Breach", f"{int(area['sla_breach_rate']*100)}%")
-                        m4.metric("Unresolved", f"{int(area['unresolved_rate']*100)}%")
+                        m1.metric(bilingual_text("ದೂರುಗಳು", "Complaints"), area["count"])
+                        m2.metric(bilingual_text("ಸಕ್ರಿಯ ದಿನಗಳು", "Active Days"), area["unique_days"])
+                        m3.metric(bilingual_text("SLA ಮೀರಿಕೆ", "SLA Breach"), f"{int(area['sla_breach_rate']*100)}%")
+                        m4.metric(bilingual_text("ಪರಿಹಾರವಾಗಿಲ್ಲ", "Unresolved"), f"{int(area['unresolved_rate']*100)}%")
                         st.info(area["action"], icon="🔧")
 
         with right_col:
-            st.subheader("Zone Risk Summary")
+            st.subheader(bilingual_text("ವಲಯ ಅಪಾಯ ಸಾರಾಂಶ", "Zone Risk Summary"))
             RISK_COLORS_ZONE = {"Critical": "#EF4444", "High": "#F59E0B", "Medium": "#10B981"}
             for z, zdata in sorted(ins["zone_risk"].items(),
                                    key=lambda x: x[1]["score"], reverse=True):
@@ -1355,7 +1423,7 @@ with tab_planning:
         st.divider()
 
         # ── Category trend chart ─────────────────────────────────────
-        st.subheader("Category Trend & Risk")
+        st.subheader(bilingual_text("ವರ್ಗ ಪ್ರವಣತೆ ಮತ್ತು ಅಪಾಯ", "Category Trend & Risk"))
         cat_rows = []
         TREND_ICON = {"Rising": "📈", "Declining": "📉", "Stable": "➡️", "New": "🆕"}
         for cat, cdata in sorted(ins["category_risk"].items(),
@@ -1394,19 +1462,19 @@ with tab_planning:
         # ── Quick wins + Long-term ────────────────────────────────────
         qw_col, lt_col = st.columns(2)
         with qw_col:
-            st.subheader("Quick Wins (≤ 2 weeks)")
+            st.subheader(bilingual_text("ತ್ವರಿತ ಜಯಗಳು (≤ 2 ವಾರಗಳು)", "Quick Wins (≤ 2 weeks)"))
             if ins["quick_wins"]:
                 for qw in ins["quick_wins"]:
                     st.markdown(f"✅ {qw}")
             else:
-                st.info("No quick wins identified. Complaints need sustained infrastructure investment.")
+                st.info(bilingual_text("ತ್ವರಿತ ಜಯಗಳು ಕಂಡುಬಂದಿಲ್ಲ. ದೂರುಗಳಿಗೆ ನಿರಂತರ ಮೂಲಸೌಕರ್ಯ ಹೂಡಿಕೆ ಅಗತ್ಯ.", "No quick wins identified. Complaints need sustained infrastructure investment."))
         with lt_col:
-            st.subheader("Long-term Investments (3–12 months)")
+            st.subheader(bilingual_text("ದೀರ್ಘಾವಧಿ ಹೂಡಿಕೆಗಳು (3–12 ತಿಂಗಳು)", "Long-term Investments (3–12 months)"))
             if ins["long_term"]:
                 for lt in ins["long_term"]:
                     st.markdown(f"🏗️ {lt}")
             else:
-                st.info("Add more complaint data to surface long-term patterns.")
+                st.info(bilingual_text("ದೀರ್ಘಕಾಲೀನ ಮಾದರಿಗಳನ್ನು ನೋಡಲು ಇನ್ನಷ್ಟು ದೂರು ಡೇಟಾ ಸೇರಿಸಿ.", "Add more complaint data to surface long-term patterns."))
 
 # =====================================================================
 # Tab 5: Chronic Hotspot AI
@@ -1417,15 +1485,22 @@ with tab_hotspot_ai:
 
     zone_tag = f" - {active_zone}" if active_zone else ""
     cat_tag = f" / {CATEGORY_LABELS.get(active_category, active_category)}" if active_category else ""
-    st.header(f"AI Chronic Hotspot Analysis{zone_tag}{cat_tag}")
+    st.header(f"{ui_text('hotspot_ai_title')}{zone_tag}{cat_tag}")
     st.caption(
-        "DBSCAN spatial clustering detects locations with repeat complaints within ~300 m. "
-        "Each hotspot is scored on complaint frequency, recurrence, SLA breach rate, and unresolved ratio."
+        bilingual_text(
+            "DBSCAN ಸ್ಥಳೀಯ ಕ್ಲಸ್ಟರಿಂಗ್ ~300 ಮೀ ಒಳಗಿನ ಪುನರಾವರ್ತಿತ ದೂರು ಸ್ಥಳಗಳನ್ನು ಪತ್ತೆಹಚ್ಚುತ್ತದೆ.",
+            "DBSCAN spatial clustering detects locations with repeat complaints within ~300 m.",
+        )
+        + " "
+        + bilingual_text(
+            "ಪ್ರತಿ ಹಾಟ್‌ಸ್ಪಾಟ್‌ಗೆ ದೂರು ಆವೃತ್ತಿ, ಮರುಕಳಿಕೆ, SLA ಮೀರಿಕೆ ಮತ್ತು ಪರಿಹಾರರಹಿತ ಅನುಪಾತದ ಆಧಾರದಲ್ಲಿ ಅಂಕ ನೀಡಲಾಗುತ್ತದೆ.",
+            "Each hotspot is scored on complaint frequency, recurrence, SLA breach rate, and unresolved ratio.",
+        )
     )
 
     col_w1, col_w2 = st.columns([1, 3])
     with col_w1:
-        window_days = st.slider("Analysis window (days)", min_value=7, max_value=90, value=60, step=7)
+        window_days = st.slider(bilingual_text("ವಿಶ್ಲೇಷಣಾ ಅವಧಿ (ದಿನಗಳು)", "Analysis window (days)"), min_value=7, max_value=90, value=60, step=7)
 
     all_c = load_complaints(active_zone, active_category, None)
 
@@ -1433,21 +1508,21 @@ with tab_hotspot_ai:
     def load_ai_hotspots(zone: str | None, category: str | None, days: int) -> list:
         return identify_chronic_hotspots(all_c, days_window=days, zone=zone, category=category)
 
-    with st.spinner("Running spatial clustering..."):
+    with st.spinner(bilingual_text("ಸ್ಥಳೀಯ ಕ್ಲಸ್ಟರಿಂಗ್ ಚಾಲನೆಗೊಳ್ಳುತ್ತಿದೆ...", "Running spatial clustering...")):
         ai_hotspots = load_ai_hotspots(active_zone, active_category, window_days)
 
     if not ai_hotspots:
-        st.info("No chronic hotspots detected for the current filters and time window. Try widening the window or removing filters.")
+        st.info(bilingual_text("ಪ್ರಸ್ತುತ ಫಿಲ್ಟರ್‌ಗಳು ಮತ್ತು ಸಮಯಾವಧಿಗೆ ದೀರ್ಘಕಾಲೀನ ಹಾಟ್‌ಸ್ಪಾಟ್‌ಗಳು ಕಂಡುಬಂದಿಲ್ಲ.", "No chronic hotspots detected for the current filters and time window. Try widening the window or removing filters."))
     else:
         # Summary chips
         n_critical = sum(1 for h in ai_hotspots if h["severity_label"] == "Critical")
         n_high = sum(1 for h in ai_hotspots if h["severity_label"] == "High")
         n_medium = sum(1 for h in ai_hotspots if h["severity_label"] == "Medium")
         chip1, chip2, chip3, chip4 = st.columns(4)
-        chip1.metric("Hotspots detected", len(ai_hotspots))
-        chip2.metric("Critical", n_critical)
-        chip3.metric("High", n_high)
-        chip4.metric("Medium", n_medium)
+        chip1.metric(bilingual_text("ಹಾಟ್‌ಸ್ಪಾಟ್‌ಗಳು ಪತ್ತೆಯಾಗಿದೆ", "Hotspots detected"), len(ai_hotspots))
+        chip2.metric(bilingual_text("ಅತ್ಯಂತ ಗಂಭೀರ", "Critical"), n_critical)
+        chip3.metric(bilingual_text("ಉಚ್ಚ", "High"), n_high)
+        chip4.metric(bilingual_text("ಮಧ್ಯಮ", "Medium"), n_medium)
 
         st.divider()
 
@@ -1461,8 +1536,8 @@ with tab_hotspot_ai:
             _render_zone_bubble_map(ai_hotspots_df.to_dict("records"), all_c, height=500)
 
         st.divider()
-        st.caption("Bubble size shows the chronic load for each zone; colors reflect the severity of the worst hotspot in that zone.")
-        st.subheader("Ranked hotspot details")
+        st.caption(bilingual_text("ಗುಬ್ಬೆಯ ಗಾತ್ರವು ವಲಯದ ದೀರ್ಘಕಾಲೀನ ಲೋಡ್ ತೋರಿಸುತ್ತದೆ.", "Bubble size shows the chronic load for each zone; colors reflect the severity of the worst hotspot in that zone."))
+        st.subheader(bilingual_text("ಶ್ರೇಣಿಬದ್ಧ ಹಾಟ್‌ಸ್ಪಾಟ್ ವಿವರಗಳು", "Ranked hotspot details"))
 
         for rank, h in enumerate(ai_hotspots, 1):
             cat_label = CATEGORY_LABELS.get(h["category"], h["category"])
@@ -1522,10 +1597,10 @@ with tab_hotspot_ai:
 with tab_tracker:
     from lib.labels import SUB_CATEGORY_LABELS
 
-    st.header("Complaint Tracker & Admin Management")
+    st.header(ui_text("tracker_title"))
     st.caption(
-        "Select any complaint to view its live tracking timeline and take admin actions — "
-        "assign, update progress, resolve, or escalate. Kannada and Tamil text stays in native script."
+        ui_text("tracker_caption")
+        + " Kannada and Tamil text stays in native script."
     )
 
     # Status flow definition
@@ -1554,7 +1629,7 @@ with tab_tracker:
 
     # ── Complaint selector ───────────────────────────────────────────
     lang_options = ["All Languages"] + sorted({language_label(c.get("language")) for c in load_complaints(active_zone, active_category, None)})
-    selected_lang_label = st.selectbox("Complaint language", lang_options, key="tracker_language_filter")
+    selected_lang_label = st.selectbox(ui_text("complaint_language"), lang_options, key="tracker_language_filter")
     selected_language_code = None if selected_lang_label == "All Languages" else normalize_language_code(next(
         (code for code, label in LANGUAGE_LABELS.items() if label == selected_lang_label), None
     ))
@@ -1569,7 +1644,7 @@ with tab_tracker:
         ]
 
     if not all_complaints_raw:
-        st.info("No complaints available for the selected filters and language.")
+        st.info(bilingual_text("ಆಯ್ದ ಫಿಲ್ಟರ್‌ಗಳು ಮತ್ತು ಭಾಷೆಗೆ ದೂರುಗಳಿಲ್ಲ.", "No complaints available for the selected filters and language."))
     else:
         with sel_col:
             # Build ID list sorted newest first
@@ -1580,7 +1655,7 @@ with tab_tracker:
                 st.session_state.tracker_complaint_id = id_options[0]
 
             selected_id = st.selectbox(
-                "Select Complaint ID",
+                ui_text("select_complaint_id"),
                 options=id_options,
                 index=id_options.index(st.session_state.tracker_complaint_id)
                       if st.session_state.tracker_complaint_id in id_options else 0,
@@ -1592,9 +1667,9 @@ with tab_tracker:
             meta = next((c for c in sorted_complaints if c["complaint_id"] == selected_id), None)
             if meta:
                 m1, m2, m3 = st.columns(3)
-                m1.metric("Category", CATEGORY_LABELS.get(meta["category"], meta["category"]))
-                m2.metric("Zone", meta["zone"])
-                m3.metric("Priority", meta.get("priority", "—").title())
+                m1.metric(ui_text("category"), CATEGORY_LABELS.get(meta["category"], meta["category"]))
+                m2.metric(ui_text("zone"), meta["zone"])
+                m3.metric(ui_text("priority"), meta.get("priority", "—").title())
 
         st.divider()
 
@@ -1674,7 +1749,7 @@ with tab_tracker:
                             padding:28px 24px 20px;">
                     <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;
                                 letter-spacing:0.07em;color:#64748b;margin-bottom:20px;">
-                        Complaint Status — {escape(selected_id)}
+                        {bilingual_text("ದೂರು ಸ್ಥಿತಿ", "Complaint Status")} — {escape(selected_id)}
                     </div>
                     <div style="display:flex;align-items:flex-start;gap:0;position:relative;">
                         {cells}
@@ -1703,7 +1778,7 @@ with tab_tracker:
                 """
                 components.html(timeline_html, height=430, scrolling=False)
             except Exception as exc:
-                st.info("Timeline preview is unavailable right now, but the complaint details below are still accessible.")
+                st.info(bilingual_text("ಸಮಯರೇಖೆ ಈಗ ಲಭ್ಯವಿಲ್ಲ, ಆದರೆ ಕೆಳಗಿನ ದೂರು ವಿವರಗಳು ಲಭ್ಯವಿವೆ.", "Timeline preview is unavailable right now, but the complaint details below are still accessible."))
                 st.caption(f"Timeline render error: {exc}")
             st.write("")
 
@@ -1711,34 +1786,34 @@ with tab_tracker:
             with st.container(border=True):
                 d1, d2 = st.columns(2)
                 with d1:
-                    st.markdown(f"**Category:** {CATEGORY_LABELS.get(detail['category'], detail['category'])}")
-                    st.markdown(f"**Sub-category:** {SUB_CATEGORY_LABELS.get(detail.get('sub_category',''), detail.get('sub_category',''))}")
-                    st.markdown(f"**Zone:** {detail.get('zone','—')}  |  **Ward:** {detail.get('ward') or '—'}")
-                    st.markdown(f"**Filed:** {detail['created_at'][:16].replace('T',' ')}")
+                    st.markdown(f"**{ui_text('category')}:** {CATEGORY_LABELS.get(detail['category'], detail['category'])}")
+                    st.markdown(f"**ಉಪ-ವರ್ಗ (Sub-category):** {SUB_CATEGORY_LABELS.get(detail.get('sub_category',''), detail.get('sub_category',''))}")
+                    st.markdown(f"**{ui_text('zone')}:** {detail.get('zone','—')}  |  **Ward:** {detail.get('ward') or '—'}")
+                    st.markdown(f"**ಸಲ್ಲಿಸಿದ ಸಮಯ (Filed):** {detail['created_at'][:16].replace('T',' ')}")
                 with d2:
-                    st.markdown(f"**Department:** {detail.get('assigned_department','—')}")
+                    st.markdown(f"**{ui_text('department')}:** {detail.get('assigned_department','—')}")
                     sla_icon = "🔴" if detail.get("sla_breached") else "🟢"
                     sla_txt = "Breached" if detail.get("sla_breached") else "On track"
                     st.markdown(f"**SLA Due:** {detail.get('sla_due_at','—')[:16].replace('T',' ')}  {sla_icon} {sla_txt}")
-                    st.markdown(f"**Priority:** {detail.get('priority','—').title()}")
+                    st.markdown(f"**{ui_text('priority')}:** {detail.get('priority','—').title()}")
                     esc = detail.get("escalation_level", 0)
                     if esc:
                         from lib.labels import ESCALATION_BADGE
-                        st.markdown(f"**Escalated to:** {ESCALATION_BADGE.get(esc, str(esc))}")
-                st.markdown(f"**Language:** {language_label(detail.get('language_code') or detail.get('language'))}")
+                        st.markdown(f"**ಎಸ್ಕಲೇಟ್ ಮಾಡಲಾಗಿದೆ (Escalated to):** {ESCALATION_BADGE.get(esc, str(esc))}")
+                st.markdown(f"**{ui_text('language')}:** {language_label(detail.get('language_code') or detail.get('language'))}")
                 if detail.get("description"):
-                    st.markdown(f"**Citizen report:** {detail.get('description_native') or detail['description']}")
+                    st.markdown(f"**ನಾಗರಿಕ ವರದಿ (Citizen report):** {detail.get('description_native') or detail['description']}")
 
             # ── Admin action panel ───────────────────────────────────
             next_statuses = STATUS_NEXT.get(current_status, [])
             if not next_statuses:
-                st.success("This complaint is fully resolved. No further actions required.", icon="✅")
+                st.success(bilingual_text("ಈ ದೂರು ಸಂಪೂರ್ಣ ಪರಿಹಾರವಾಗಿದೆ. ಇನ್ನಷ್ಟು ಕ್ರಮ ಅಗತ್ಯವಿಲ್ಲ.", "This complaint is fully resolved. No further actions required."), icon="✅")
             else:
-                st.subheader("Admin Actions")
+                st.subheader(bilingual_text("ಆಡಳಿತ ಕ್ರಮಗಳು", "Admin Actions"))
                 action_col, note_col = st.columns([1, 2])
                 with note_col:
                     action_note = st.text_input(
-                        "Add a work note (optional)",
+                        bilingual_text("ಕೆಲಸದ ಟಿಪ್ಪಣಿ ಸೇರಿಸಿ (ಐಚ್ಛಿಕ)", "Add a work note (optional)"),
                         placeholder="e.g. Assigned to Zone North field team, work begins tomorrow",
                         key="tracker_note",
                     )
@@ -1752,15 +1827,15 @@ with tab_tracker:
                                 try:
                                     escalate_complaint(selected_id)
                                     st.cache_data.clear()
-                                    st.success("Complaint escalated.")
+                                    st.success(bilingual_text("ದೂರು ಎಸ್ಕಲೇಟ್ ಮಾಡಲಾಗಿದೆ.", "Complaint escalated."))
                                     st.rerun()
                                 except Exception as exc:
                                     st.error(str(exc))
                         else:
                             btn_label = {
-                                "assigned":    "👤 Assign Complaint",
-                                "in_progress": "🔧 Mark In Progress",
-                                "resolved":    "✅ Mark Resolved",
+                                "assigned":    bilingual_text("👤 ದೂರು ಹಂಚಿಕೆ", "Assign Complaint"),
+                                "in_progress": bilingual_text("🔧 ಪ್ರಗತಿಯಲ್ಲಿದೆ ಎಂದು ಗುರುತು", "Mark In Progress"),
+                                "resolved":    bilingual_text("✅ ಪರಿಹರಿಸಲಾಗಿದೆ ಎಂದು ಗುರುತು", "Mark Resolved"),
                             }.get(next_st, f"{icon} Move to {lbl}")
                             if st.button(btn_label, key=f"btn_{next_st}_{selected_id}",
                                          type="primary" if next_st == "resolved" else "secondary",
@@ -1768,7 +1843,7 @@ with tab_tracker:
                                 try:
                                     update_complaint_status(selected_id, next_st, action_note or None)
                                     st.cache_data.clear()
-                                    st.success(f"Status updated to **{lbl}**.")
+                                    st.success(bilingual_text(f"ಸ್ಥಿತಿ ನವೀಕರಿಸಲಾಗಿದೆ: **{lbl}**.", f"Status updated to **{lbl}**."))
                                     st.rerun()
                                 except Exception as exc:
                                     st.error(str(exc))
@@ -1776,7 +1851,7 @@ with tab_tracker:
             # ── Activity log ─────────────────────────────────────────
             if history:
                 st.divider()
-                st.subheader("Activity Log")
+                st.subheader(bilingual_text("ಕ್ರಿಯೆಗಳ ಲಾಗ್", "Activity Log"))
                 import pandas as _pd
                 hist_rows = []
                 for h in sorted(history, key=lambda x: x["changed_at"], reverse=True):
@@ -1795,38 +1870,38 @@ with tab_tracker:
 # Tab 7: Complaint Table
 # =====================================================================
 with tab_table:
-    st.header("Complaint Detail")
-    st.caption("Drill into individual complaints. Filters apply on top of the zone filter in the sidebar, and native scripts are preserved.")
+    st.header(ui_text("complaints_title"))
+    st.caption(bilingual_text("ವ್ಯಕ್ತಿಗತ ದೂರು ವಿವರಗಳಿಗೆ ಇಳಿದು ನೋಡಿರಿ.", "Drill into individual complaints.") + " Filters apply on top of the zone filter in the sidebar, and native scripts are preserved.")
 
     # Additional per-tab filters (zone comes from sidebar)
     col_f1, col_f2, col_f3, col_f4 = st.columns(4)
     with col_f1:
-        cat_options = ["All Categories"] + [CATEGORY_LABELS[k] for k in CATEGORIES]
-        selected_cat_label: str = st.selectbox("Category", cat_options)
+        cat_options = [ui_text("all_categories")] + [_ka(CATEGORY_LABELS[k]) for k in CATEGORIES]
+        selected_cat_label: str = st.selectbox(ui_text("category"), cat_options)
         selected_cat: str | None = None
-        if selected_cat_label != "All Categories":
+        if selected_cat_label != ui_text("all_categories"):
             # Reverse map label -> key
             selected_cat = next(
                 (k for k, v in CATEGORY_LABELS.items() if v == selected_cat_label), None
             )
 
     with col_f2:
-        status_options = ["All Statuses"] + [STATUS_LABELS[s] for s in STATUSES]
-        selected_status_label: str = st.selectbox("Status", status_options)
+        status_options = [bilingual_text("ಎಲ್ಲಾ ಸ್ಥಿತಿಗಳು", "All Statuses")] + [_ka(STATUS_LABELS[s]) for s in STATUSES]
+        selected_status_label: str = st.selectbox(ui_text("status"), status_options)
         selected_status: str | None = None
-        if selected_status_label != "All Statuses":
+        if selected_status_label != bilingual_text("ಎಲ್ಲಾ ಸ್ಥಿತಿಗಳು", "All Statuses"):
             selected_status = next(
                 (k for k, v in STATUS_LABELS.items() if v == selected_status_label), None
             )
 
     with col_f3:
         sort_options = ["Newest first", "Oldest first", "Priority (high first)"]
-        sort_by: str = st.selectbox("Sort by", sort_options)
+        sort_by: str = st.selectbox(bilingual_text("ಕ್ರಮಬದ್ಧಗೊಳಿಸಿ", "Sort by"), sort_options)
 
     with col_f4:
-        table_lang_options = ["All Languages", "Kannada", "Tamil", "English"]
-        selected_table_lang = st.selectbox("Language", table_lang_options, key="table_language_filter")
-        selected_table_language_code = None if selected_table_lang == "All Languages" else normalize_language_code(next(
+        table_lang_options = [bilingual_text("ಎಲ್ಲಾ ಭಾಷೆಗಳು", "All Languages"), bilingual_text("ಕನ್ನಡ", "Kannada"), bilingual_text("ತಮಿಳು", "Tamil"), bilingual_text("ಇಂಗ್ಲಿಷ್", "English")]
+        selected_table_lang = st.selectbox(ui_text("language"), table_lang_options, key="table_language_filter")
+        selected_table_language_code = None if selected_table_lang == bilingual_text("ಎಲ್ಲಾ ಭಾಷೆಗಳು", "All Languages") else normalize_language_code(next(
             (code for code, label in LANGUAGE_LABELS.items() if label == selected_table_lang), None
         ))
 
@@ -1840,7 +1915,7 @@ with tab_table:
     if selected_table_language_code:
         comp_df = comp_df[comp_df["language_code"] == selected_table_language_code]
     if comp_df.empty:
-        st.info("No complaints match the selected filters and language.")
+        st.info(bilingual_text("ಆಯ್ದ ಫಿಲ್ಟರ್‌ಗಳು ಮತ್ತು ಭಾಷೆಗೆ ದೂರುಗಳಿಲ್ಲ.", "No complaints match the selected filters and language."))
     else:
         # Sort
         if sort_by == "Newest first":
@@ -1852,20 +1927,20 @@ with tab_table:
                 ["priority", "created_at"], ascending=[True, False]
             )  # "high" < "normal" alphabetically, so ascending=True puts high first
 
-        st.caption(f"Showing {len(comp_df)} complaints")
+        st.caption(bilingual_text(f"{len(comp_df)} ದೂರುಗಳನ್ನು ತೋರಿಸಲಾಗುತ್ತಿದೆ", f"Showing {len(comp_df)} complaints"))
 
         display_cols = {
-            "complaint_id": "Complaint ID",
-            "category_label": "Category",
-            "sub_category_label": "Sub-category",
-            "zone": "Zone",
+            "complaint_id": bilingual_text("ದೂರು ಐಡಿ", "Complaint ID"),
+            "category_label": bilingual_text("ವರ್ಗ", "Category"),
+            "sub_category_label": bilingual_text("ಉಪ-ವರ್ಗ", "Sub-category"),
+            "zone": bilingual_text("ವಲಯ", "Zone"),
             "ward": "Ward",
-            "language_label": "Language",
-            "description_native": "Citizen Report",
-            "status_label": "Status",
-            "priority_label": "Priority",
-            "created_date": "Filed On",
-            "sla_breached": "SLA Breached",
+            "language_label": bilingual_text("ಭಾಷೆ", "Language"),
+            "description_native": bilingual_text("ನಾಗರಿಕ ವರದಿ", "Citizen Report"),
+            "status_label": bilingual_text("ಸ್ಥಿತಿ", "Status"),
+            "priority_label": bilingual_text("ಪ್ರಾಥಮ್ಯ", "Priority"),
+            "created_date": bilingual_text("ಸಲ್ಲಿಸಿದ ದಿನಾಂಕ", "Filed On"),
+            "sla_breached": bilingual_text("SLA ಮೀರಿದೆ", "SLA Breached"),
         }
         existing = {k: v for k, v in display_cols.items() if k in comp_df.columns}
         out_df = comp_df[list(existing.keys())].rename(columns=existing)

@@ -13,6 +13,7 @@ from lib.labels import LANGUAGE_LABELS
 
 SARVAM_TEXT_LID_URL = "https://api.sarvam.ai/text-lid"
 SARVAM_TRANSLITERATE_URL = "https://api.sarvam.ai/transliterate"
+SARVAM_TRANSLATE_URL = "https://api.sarvam.ai/translate"
 
 KANADA_RANGE = re.compile(r"[\u0C80-\u0CFF]")
 TAMIL_RANGE = re.compile(r"[\u0B80-\u0BFF]")
@@ -103,6 +104,38 @@ def transliterate_text(text: str, source_language_code: str, target_language_cod
         return data.get("transliterated_text")
     except Exception:
         return None
+
+
+@lru_cache(maxsize=4096)
+def translate_text(text: str, source_language_code: str = "en-IN", target_language_code: str = "kn-IN") -> str | None:
+    """Translate text with Sarvam and return None on any failure."""
+    if not text or not _api_key():
+        return None
+    try:
+        response = requests.post(
+            SARVAM_TRANSLATE_URL,
+            headers=_headers(),
+            json={
+                "input": text[:1000],
+                "source_language_code": source_language_code,
+                "target_language_code": target_language_code,
+            },
+            timeout=12,
+        )
+        response.raise_for_status()
+        data = response.json()
+        return data.get("translated_text") or data.get("output_text")
+    except Exception:
+        return None
+
+
+def bilingual_text(kannada_text: str, english_text: str) -> str:
+    """Compose a Kannada-first label with English fallback in parentheses."""
+    if not kannada_text:
+        return english_text
+    if not english_text:
+        return kannada_text
+    return f"{kannada_text} ({english_text})"
 
 
 def normalize_complaint_text(text: str, complaint_language: str | None) -> str:
