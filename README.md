@@ -49,6 +49,30 @@ The app opens at `http://localhost:8501` by default.
 
 ---
 
+## Screenshots
+
+Add UI screenshots here to make the GitHub repo easier to scan:
+
+- `docs/screenshots/overview.png`
+- `docs/screenshots/planning.png`
+- `docs/screenshots/hotspot-map.png`
+- `docs/screenshots/track-and-manage.png`
+
+If you don’t have screenshots yet, this section is a good placeholder for a later polish pass.
+
+---
+
+## Release notes
+
+Latest update highlights:
+
+- Sarvam now powers the planning summary and language-aware complaint handling.
+- Kannada and Tamil complaint text stays in native script in the tracker and complaints table.
+- Hotspot mapping now falls back cleanly when Folium is unavailable.
+- The UI has a cleaner dashboard-style layout with clearer alerts and filters.
+
+---
+
 ## Project layout
 
 ```
